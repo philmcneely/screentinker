@@ -4,6 +4,38 @@
 
 ### Added
 
+- **Single-item image fit modes (`cover`, `contain`, `fill`), background color compositing, and
+  dashboard orientation support for embedded displays.** Single-item image renders on `/api/embedded/render`
+  now honor playlist item `fit_mode` (`cover`, `contain`, `fill`) and composite transparent PNGs or
+  letterboxed `contain` frames onto the effective `background_color` (zone background when a 1-zone
+  layout is assigned, else `device.background_color`, defaulting to `#000000`). Changing `fit_mode`,
+  `background_color`, `orientation`, `colorDepth`, or `dither` invalidates the render cache key and
+  triggers `X-ST-Refresh-Mode: full`. Saving a changed **Orientation** on an embedded device's
+  Settings page now persists `screen_profile.orientation` and clears `reported_orientation` so
+  operators can set a panel's orientation from the dashboard when the firmware does not override it
+  on every poll.
+
+- **Dynamic color modes for Seeed reTerminal E-Series embedded devices: 1-bit mono and 4-level
+  grayscale (Gray4).** The reTerminal Sticky and E1001 profiles now declare
+  `supportedColorModes: ['1bit', 'gray4']`, and the dashboard's device settings offer a Color Mode
+  selector for them (with a color-mode badge in the device header). A new `packGray4`
+  postprocessing pipeline quantizes frames to 4 gray levels (BT.601, Floyd-Steinberg dithering) and
+  packs them 2 bits per pixel, MSB-first — bit-exact with the MCU firmware's rotation/test vectors
+  — and `/api/embedded/render` emits `X-ST-Color-Mode` on both 200 and 304 responses so the
+  firmware validates the payload format. Switching modes changes the render cache key, so devices
+  re-download immediately. Profiles reject Gray4 frames whose width is not divisible by 4, and a
+  stored `colorDepth` that the device's preset does not support falls back to the preset default
+  (e.g. after switching a screen from Sticky to E1002).
+
+- **Server refresh-mode hinting (`X-ST-Refresh-Mode`) for partial-refresh e-paper.** The render
+  endpoint advises `full` on first render, cold boots (missing `If-None-Match`), playlist item/scene
+  transitions, and layout changes, and `partial` for incremental widget updates on
+  partial-refresh-capable devices (Sticky, E1001, E1003); a new per-device "Refresh Behavior"
+  setting (`smart_partial` vs `always_full`) can force `full` always. The firmware honors `full` by
+  clearing its 6:1 ghosting-mitigation cadence. The hinting state is in-memory and bounded (24 h TTL
+  + LRU cap), and fails safe across multi-instance deployments (a worker that has not seen a device
+  advises `full`).
+
 - **Weather, clock and radar widgets can follow the screen they are on.** A weather widget used
   to show only the place typed into it, so one widget could not serve screens in different towns,
   and moving a screen in Device Info changed nothing. Set the weather widget's Location to "The

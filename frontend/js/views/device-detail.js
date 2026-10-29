@@ -843,11 +843,55 @@ async function loadDevice(deviceId, activeTab = null) {
       return 'floyd-steinberg';
     })();
 
+    const { currentPreset, currentColorDepth, currentRefreshMode } = (() => {
+      let preset = 'seeed-reterminal-sticky';
+      let depth = '1bit';
+      let refreshMode = 'smart_partial';
+      if (device.screen_profile) {
+        if (typeof device.screen_profile === 'object') {
+          if (device.screen_profile.preset) preset = device.screen_profile.preset;
+          if (device.screen_profile.colorDepth) depth = device.screen_profile.colorDepth;
+          if (device.screen_profile.refreshMode) refreshMode = device.screen_profile.refreshMode;
+        } else if (typeof device.screen_profile === 'string') {
+          if (device.screen_profile.startsWith('{')) {
+            try {
+              const p = JSON.parse(device.screen_profile);
+              if (p && p.preset) preset = p.preset;
+              if (p && p.colorDepth) depth = p.colorDepth;
+              if (p && p.refreshMode) refreshMode = p.refreshMode;
+            } catch (_) {}
+          } else {
+            preset = device.screen_profile;
+          }
+        }
+      }
+      if (depth === '1bit') {
+        if (preset.includes('e1002') || preset.includes('e1004')) depth = 'spectra6';
+        else if (preset.includes('e1003')) depth = 'gray16';
+      }
+      return { currentPreset: preset, currentColorDepth: depth, currentRefreshMode: refreshMode };
+    })();
+
+    const colorModeBadgeHtml = () => {
+      if (!isEmbeddedDevice(device)) return '';
+      if (currentColorDepth === 'gray4') {
+        return `<span class="device-status-badge" style="background:#2563eb;color:#fff" title="${t('device.color_mode.gray4_tip')}">${t('device.color_mode.gray4_badge')}</span>`;
+      }
+      if (currentColorDepth === 'gray16') {
+        return `<span class="device-status-badge" style="background:#4f46e5;color:#fff" title="${t('device.color_mode.gray16_tip')}">${t('device.color_mode.gray16_badge')}</span>`;
+      }
+      if (currentColorDepth === 'spectra6') {
+        return `<span class="device-status-badge" style="background:linear-gradient(90deg,#ef4444,#f59e0b,#10b981,#3b82f6,#8b5cf6);color:#fff;text-shadow:0 1px 2px rgba(0,0,0,0.6)" title="${t('device.color_mode.spectra6_tip')}">${t('device.color_mode.spectra6_badge')}</span>`;
+      }
+      return `<span class="device-status-badge" style="background:#6b7280;color:#fff" title="${t('device.color_mode.1bit_tip')}">${t('device.color_mode.1bit_badge')}</span>`;
+    };
+
     contentEl.innerHTML = `
       <div class="device-header">
         <div class="device-header-left">
           <h1 id="deviceName">${esc(device.name)}</h1>
           ${(() => { const b = livenessBadge(device); return `<span class="device-status-badge ${b.state}"${b.title ? ` title="${esc(b.title)}"` : ''}>${esc(b.label)}</span>`; })()}
+          ${colorModeBadgeHtml()}
           ${device.owner_name || device.owner_email ? `<span style="font-size:12px;color:var(--text-muted)">${t('device.owner_label', { owner: esc(device.owner_name || device.owner_email) })}</span>` : ''}
         </div>
         <div class="device-header-actions">
@@ -1396,12 +1440,37 @@ async function loadDevice(deviceId, activeTab = null) {
           <div style="display:flex;gap:12px;margin-bottom:12px">
             <div class="form-group" style="flex:1;margin:0">
               <label>${t('device.form.orientation_label')}</label>
+              ${(() => {
+                let effectiveOrientation = device.orientation || 'landscape';
+                if (isEmbeddedDevice(device)) {
+                  let pObj = null;
+                  try {
+                    if (typeof device.screen_profile === 'object' && device.screen_profile) {
+                      pObj = device.screen_profile;
+                    } else if (typeof device.screen_profile === 'string' && device.screen_profile.startsWith('{')) {
+                      pObj = JSON.parse(device.screen_profile);
+                    } else if (typeof device.screen_profile === 'string' && device.screen_profile) {
+                      pObj = { preset: device.screen_profile };
+                    }
+                  } catch (_) {}
+                  if (pObj && pObj.orientation) {
+                    effectiveOrientation = pObj.orientation;
+                  } else if (device.reported_orientation) {
+                    effectiveOrientation = device.reported_orientation;
+                  } else if (pObj && (pObj.preset === 'seeed-reterminal-e1004' || (pObj.width && pObj.height && pObj.height > pObj.width))) {
+                    effectiveOrientation = 'portrait';
+                  } else {
+                    effectiveOrientation = device.orientation || 'landscape';
+                  }
+                }
+                return `
               <select id="deviceOrientation" class="input" style="background:var(--bg-input)">
-                <option value="landscape" ${'landscape' === (device.orientation || 'landscape') ? 'selected' : ''}>${t('device.form.orientation.landscape')}</option>
-                <option value="portrait" ${'portrait' === device.orientation ? 'selected' : ''}>${t('device.form.orientation.portrait')}</option>
-                <option value="landscape-flipped" ${'landscape-flipped' === device.orientation ? 'selected' : ''}>${t('device.form.orientation.landscape_flipped')}</option>
-                <option value="portrait-flipped" ${'portrait-flipped' === device.orientation ? 'selected' : ''}>${t('device.form.orientation.portrait_flipped')}</option>
-              </select>
+                <option value="landscape" ${'landscape' === effectiveOrientation ? 'selected' : ''}>${t('device.form.orientation.landscape')}</option>
+                <option value="portrait" ${'portrait' === effectiveOrientation ? 'selected' : ''}>${t('device.form.orientation.portrait')}</option>
+                <option value="landscape-flipped" ${'landscape-flipped' === effectiveOrientation ? 'selected' : ''}>${t('device.form.orientation.landscape_flipped')}</option>
+                <option value="portrait-flipped" ${'portrait-flipped' === effectiveOrientation ? 'selected' : ''}>${t('device.form.orientation.portrait_flipped')}</option>
+              </select>`;
+              })()}
             </div>
               <div class="form-group">
                 <label>${t('device.form.background_label')}</label>
@@ -1419,6 +1488,26 @@ async function loadDevice(deviceId, activeTab = null) {
               </div>
             </div>
             ${isEmbeddedDevice(device) ? `
+            ${/* SYNC with server/lib/embedded-profiles.js: show only for presets whose supportedColorModes has more than one entry */''}
+            ${(currentPreset === 'seeed-reterminal-sticky' || currentPreset === 'seeed-reterminal-e1001') ? `
+            <div class="form-group">
+              <label>${t('device.form.color_mode_label')}</label>
+              <select id="epdColorMode" class="input" style="background:var(--bg-input)">
+                <option value="1bit" ${currentColorDepth === '1bit' ? 'selected' : ''}>${t('device.form.color_mode_1bit')}</option>
+                <option value="gray4" ${currentColorDepth === 'gray4' ? 'selected' : ''}>${t('device.form.color_mode_gray4')}</option>
+              </select>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:4px">${t('device.form.color_mode_hint')}</div>
+            </div>` : ''}
+            ${/* SYNC with server/lib/embedded-profiles.js: show only for presets with supportsPartialRefresh: true */''}
+            ${(currentPreset === 'seeed-reterminal-sticky' || currentPreset === 'seeed-reterminal-e1001' || currentPreset === 'seeed-reterminal-e1003') ? `
+            <div class="form-group">
+              <label>${t('device.form.refresh_mode_label')}</label>
+              <select id="epdRefreshMode" class="input" style="background:var(--bg-input)">
+                <option value="smart_partial" ${currentRefreshMode !== 'always_full' ? 'selected' : ''}>${t('device.form.refresh_mode_smart_partial')}</option>
+                <option value="always_full" ${currentRefreshMode === 'always_full' ? 'selected' : ''}>${t('device.form.refresh_mode_always_full')}</option>
+              </select>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:4px">${t('device.form.refresh_mode_hint')}</div>
+            </div>` : ''}
             <div class="form-group">
               <label>${t('device.form.dither_label')}</label>
               <select id="epdDither" class="input" style="background:var(--bg-input)">
@@ -2929,6 +3018,13 @@ function setupActions(device) {
   }
 
   wireLocationSearch();
+
+  const orientSelect = document.getElementById('deviceOrientation');
+  if (orientSelect && !orientSelect.dataset.wired) {
+    orientSelect.dataset.wired = '1';
+    orientSelect.addEventListener('change', () => { orientSelect.dataset.changed = '1'; });
+  }
+
   document.getElementById('saveSettingsTopBtn')?.addEventListener('click', () => {
     document.getElementById('saveNotesBtn')?.click();
   });
@@ -2955,23 +3051,35 @@ function setupActions(device) {
 
       let epdProfileUpdate = undefined;
       const ditherEl = document.getElementById('epdDither');
-      if (ditherEl) {
-        let existingPreset = 'seeed-reterminal-sticky';
+      const colorModeEl = document.getElementById('epdColorMode');
+      const refreshModeEl = document.getElementById('epdRefreshMode');
+      const orientationEl = document.getElementById('deviceOrientation');
+      const orientationChanged = orientationEl && orientationEl.dataset.changed === '1';
+      if (ditherEl || colorModeEl || refreshModeEl || (isEmbeddedDevice(device) && orientationEl)) {
+        let existingProfileObj = {};
         try {
           if (typeof device.screen_profile === 'string') {
             if (device.screen_profile.startsWith('{')) {
-              const p = JSON.parse(device.screen_profile);
-              if (p.preset) existingPreset = p.preset;
+              existingProfileObj = JSON.parse(device.screen_profile);
             } else if (device.screen_profile) {
-              existingPreset = device.screen_profile;
+              existingProfileObj = { preset: device.screen_profile };
             }
-          } else if (typeof device.screen_profile === 'object' && device.screen_profile?.preset) {
-            existingPreset = device.screen_profile.preset;
+          } else if (typeof device.screen_profile === 'object' && device.screen_profile) {
+            existingProfileObj = { ...device.screen_profile };
           }
         } catch (_) {}
+        const shouldWriteOrientation = orientationChanged || Boolean(existingProfileObj.orientation);
+        // ⚠️ No colorDepth/refreshMode/dither defaults here: this runs for EVERY embedded screen
+        // (anything with an orientation field), and a default would override the preset's own value
+        // whenever the stored profile does not name it, e.g. turn a generic RGB565 TFT into a 1-bit
+        // panel on an unrelated Save. Only what is stored and what the page shows is written.
         epdProfileUpdate = {
-          preset: existingPreset,
-          dither: ditherEl.value || 'floyd-steinberg',
+          preset: 'seeed-reterminal-sticky',
+          ...existingProfileObj,
+          ...(colorModeEl ? { colorDepth: colorModeEl.value } : {}),
+          ...(ditherEl ? { dither: ditherEl.value || 'floyd-steinberg' } : {}),
+          ...(refreshModeEl ? { refreshMode: refreshModeEl.value || 'smart_partial' } : {}),
+          ...(orientationEl && shouldWriteOrientation ? { orientation: orientationEl.value } : {}),
         };
       }
 
@@ -2979,7 +3087,9 @@ function setupActions(device) {
         ...locBody,
         tags: document.getElementById('deviceTags')?.value ?? undefined,
         notes: document.getElementById('deviceNotes').value,
-        orientation: document.getElementById('deviceOrientation').value,
+        orientation: isEmbeddedDevice(device)
+          ? (orientationChanged ? orientationEl?.value : undefined)
+          : document.getElementById('deviceOrientation')?.value,
         // #325: the reset button clears the field, which sends '' and the API stores NULL, putting
         // the screen back on the player's own default rather than pinning it to black.
         background_color: (document.getElementById('devBackground')?.dataset.cleared === '1')
@@ -3005,6 +3115,7 @@ function setupActions(device) {
       if (saved && saved.screen_profile !== undefined) {
         device.screen_profile = saved.screen_profile;
       }
+      if (orientationEl) delete orientationEl.dataset.changed;
       showToast(t('device.toast.settings_saved'), 'success');
       // A tag change can move the screen into or out of dynamic groups; say which.
       for (const c of (saved && saved.groups_changed) || []) {
