@@ -52,6 +52,9 @@
 
 ### Fixed
 
+- **A fisheye camera on the native player zooms with the mouse wheel.** With "Let people move it
+  by touch on the screen" on, a mouse could already drag the view and double-click it back, but
+  only a pinch could zoom. One wheel notch now zooms 15% (up = in).
 - **A layout zone with more than one widget now rotates on the native Raspberry Pi and Windows
   players.** A zone holding, say, a weather widget and a radar stayed on the first widget for ever:
   the player took the widget for a video and waited for it to end. Widgets now move on after their
