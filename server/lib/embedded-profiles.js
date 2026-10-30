@@ -119,6 +119,16 @@ const PRESETS = {
     width: 128, height: 32, rotation: 0,
     colorDepth: '1bit', dither: 'atkinson', outputFormat: 'raw',
   },
+  // ── LED Strip (Seeed Studio XIAO LED Controller) ──────────────────────────────
+  'seeed-xiao-led': {
+    width: 5, height: 1, rotation: 0,
+    parameterizedDimensions: true,
+    supportedColorModes: ['24bit-rgb888'],
+    defaultColorDepth: '24bit-rgb888',
+    colorDepth: '24bit-rgb888', dither: 'none', outputFormat: 'raw',
+    supportsPartialRefresh: true, minRefreshInterval: 1,
+    fullRefreshDurationMs: 50, partialRefreshDurationMs: 50,
+  },
 };
 
 const VALID_COLOR_DEPTHS   = new Set(['1bit', 'gray4', '4bit-gray', 'gray16', 'spectra6', '16bit-rgb565', '24bit-rgb888']);
@@ -212,6 +222,9 @@ function parseProfile(raw, overrides = {}) {
   let width  = Number.isInteger(obj.width)  && obj.width  > 0 && obj.width  <= 10000 ? obj.width  : null;
   let height = Number.isInteger(obj.height) && obj.height > 0 && obj.height <= 10000 ? obj.height : null;
   if (!width || !height) return null;
+  if (obj.parameterizedDimensions && (width > 512 || height > 512 || width * height > 16384)) {
+    return null;
+  }
 
   // A stated orientation wins; otherwise the profile's own `orientation` field, if it has one.
   const profileOrientation = VALID_ORIENTATIONS.has(obj.orientation) ? obj.orientation : null;
@@ -237,11 +250,12 @@ function parseProfile(raw, overrides = {}) {
 
   const mcuTranspose = obj.mcuTranspose === true || (stated && MCU_TRANSPOSE_STATED.has(presetName));
 
+  const rawDepth = obj.colorDepth === 'rgb888' ? '24bit-rgb888' : (obj.colorDepth === 'mono' ? '1bit' : obj.colorDepth);
   const result = {
     width,
     height,
     rotation,
-    colorDepth:   VALID_COLOR_DEPTHS.has(obj.colorDepth)      ? obj.colorDepth   : (obj.defaultColorDepth || DEFAULTS.colorDepth),
+    colorDepth:   VALID_COLOR_DEPTHS.has(rawDepth)            ? rawDepth         : (obj.defaultColorDepth || DEFAULTS.colorDepth),
     dither:       VALID_DITHERS.has(obj.dither)               ? obj.dither       : DEFAULTS.dither,
     outputFormat: VALID_OUTPUT_FORMATS.has(obj.outputFormat)  ? obj.outputFormat : DEFAULTS.outputFormat,
   };

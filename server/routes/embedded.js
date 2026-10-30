@@ -890,9 +890,31 @@ router.post('/pair/register', (req, res) => {
   const newToken = crypto.randomBytes(32).toString('hex');
   const claimSecret = crypto.randomBytes(32).toString('hex');
   const parsed = parseProfile(screen_profile || 'seeed-reterminal-sticky');
-  const width = parseInt(screen_width) || parsed?.width || 800;
-  const height = parseInt(screen_height) || parsed?.height || 480;
-  const profile = typeof screen_profile === 'object' ? JSON.stringify(screen_profile) : (screen_profile || 'seeed-reterminal-sticky');
+  let width = parseInt(screen_width) || parsed?.width || 800;
+  let height = parseInt(screen_height) || parsed?.height || 480;
+  let profile;
+  if (typeof screen_profile === 'object' && screen_profile !== null) {
+    profile = JSON.stringify(screen_profile);
+  } else if (typeof screen_profile === 'string' && getPreset(screen_profile)) {
+    const presetObj = getPreset(screen_profile);
+    if (
+      presetObj.parameterizedDimensions &&
+      ((screen_width && parseInt(screen_width) !== presetObj.width) || (screen_height && parseInt(screen_height) !== presetObj.height))
+    ) {
+      const candidate = { preset: screen_profile, width, height };
+      if (parseProfile(candidate)) {
+        profile = JSON.stringify(candidate);
+      } else {
+        width = presetObj.width;
+        height = presetObj.height;
+        profile = screen_profile;
+      }
+    } else {
+      profile = screen_profile;
+    }
+  } else {
+    profile = screen_profile || 'seeed-reterminal-sticky';
+  }
   // What the hardware said it is (screentinker_mcu registers with its compile-time preset). Only a
   // named preset the device itself sent; the Sticky default above is ours, not the device's.
   const reportedBoard = (typeof screen_profile === 'string' && getPreset(screen_profile)) ? (boardFrom(screen_profile) || null) : null;
@@ -1044,6 +1066,32 @@ function applyFormatOverride(req, profile) {
   return null;
 }
 
+function deviceProfile(device, stated) {
+  let raw = device.screen_profile;
+  const w = parseInt(device.screen_width);
+  const h = parseInt(device.screen_height);
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed === 'object' && parsed !== null) raw = parsed;
+    } catch (_) {}
+  }
+  if (typeof raw === 'object' && raw !== null && raw.preset) {
+    const preset = getPreset(raw.preset);
+    if (preset && preset.parameterizedDimensions && w > 0 && h > 0 && (!raw.width || !raw.height)) {
+      if (w !== preset.width || h !== preset.height) {
+        raw = { ...raw, width: w, height: h };
+      }
+    }
+  } else if (typeof raw === 'string' && getPreset(raw)) {
+    const preset = getPreset(raw);
+    if (preset && preset.parameterizedDimensions && w > 0 && h > 0 && (w !== preset.width || h !== preset.height)) {
+      raw = { preset: raw, width: w, height: h };
+    }
+  }
+  return parseProfile(raw, stated);
+}
+
 // ─── GET /api/embedded/info ─────────────────────────────────────────────────────
 
 router.get('/info', resolveAuth, (req, res) => {
@@ -1052,7 +1100,7 @@ router.get('/info', resolveAuth, (req, res) => {
 
   touchDeviceHeartbeat(device, req);
   const { orientation: overrideOrientation, rotation: overrideRotation } = resolveOrientationRotation(req, device);
-  const profile = parseProfile(device.screen_profile, { orientation: overrideOrientation, rotation: overrideRotation });
+  const profile = deviceProfile(device, { orientation: overrideOrientation, rotation: overrideRotation });
   const power = evaluateDevicePower(device);
   // /info is metadata (MCU negotiation / debugging / monitors). It must NOT advance the panel's
   // cursor, or a poll that lands after the current item's dwell would make the real render skip an item.
@@ -1101,7 +1149,7 @@ router.get('/render', resolveAuth, async (req, res) => {
   touchDeviceHeartbeat(device, req);
 
   const { orientation: overrideOrientation, rotation: overrideRotation } = resolveOrientationRotation(req, device);
-  const profile = parseProfile(device.screen_profile, { orientation: overrideOrientation, rotation: overrideRotation });
+  const profile = deviceProfile(device, { orientation: overrideOrientation, rotation: overrideRotation });
   if (!profile) {
     return res.status(400).json({
       error: 'Embedded rendering not configured for this device.',
@@ -1170,7 +1218,7 @@ router.get('/render-layout', resolveAuth, async (req, res) => {
   touchDeviceHeartbeat(device, req);
 
   const { orientation: overrideOrientation, rotation: overrideRotation } = resolveOrientationRotation(req, device);
-  const profile = parseProfile(device.screen_profile, { orientation: overrideOrientation, rotation: overrideRotation });
+  const profile = deviceProfile(device, { orientation: overrideOrientation, rotation: overrideRotation });
   if (!profile) {
     return res.status(400).json({
       error: 'Embedded rendering not configured for this device.',

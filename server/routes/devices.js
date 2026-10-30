@@ -901,7 +901,16 @@ router.put('/:id', (req, res) => {
 
     if (screen_profile === undefined && orientationActuallyChanged) {
       existingProfileObj.orientation = orientation;
-      const { parseProfile } = require('../lib/embedded-profiles');
+      const { parseProfile, getPreset } = require('../lib/embedded-profiles');
+      const w = parseInt(device.screen_width);
+      const h = parseInt(device.screen_height);
+      const preset = existingProfileObj.preset ? getPreset(existingProfileObj.preset) : null;
+      if (preset && preset.parameterizedDimensions && (!existingProfileObj.width || !existingProfileObj.height) && w > 0 && h > 0) {
+        if (w !== preset.width || h !== preset.height) {
+          existingProfileObj.width = w;
+          existingProfileObj.height = h;
+        }
+      }
       if (parseProfile(existingProfileObj)) {
         updates.push('screen_profile = ?');
         values.push(JSON.stringify(existingProfileObj));
@@ -933,12 +942,22 @@ router.put('/:id', (req, res) => {
         profileObj.orientation = orientation;
       }
 
-      const { parseProfile } = require('../lib/embedded-profiles');
+      const { parseProfile, getPreset } = require('../lib/embedded-profiles');
+      const w = parseInt(device.screen_width);
+      const h = parseInt(device.screen_height);
+      const preset = profileObj && profileObj.preset ? getPreset(profileObj.preset) : null;
+      if (preset && preset.parameterizedDimensions && (!profileObj.width || !profileObj.height) && w > 0 && h > 0) {
+        if (w !== preset.width || h !== preset.height) {
+          profileObj.width = w;
+          profileObj.height = h;
+        }
+      }
+
       const parsed = parseProfile(profileObj || screen_profile);
       if (!parsed) {
         return res.status(400).json({ error: 'Invalid screen_profile' });
       }
-      profileVal = (profileObj && (profileObj.orientation || typeof screen_profile === 'object'))
+      profileVal = (profileObj && (profileObj.orientation || typeof screen_profile === 'object' || profileObj.width || profileObj.height))
         ? JSON.stringify(profileObj)
         : String(screen_profile);
     }
